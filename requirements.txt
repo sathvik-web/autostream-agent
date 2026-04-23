@@ -1,0 +1,13 @@
+# AutoStream AI Agent — Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core Agent Framework
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+
+# Google Gemini LLM
+google-generativeai>=0.7.0
+
+# Environment variable management
+python-dotenv>=1.0.0
