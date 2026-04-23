@@ -16,7 +16,7 @@ The agent is designed to:
 
 ## Demo Video
 
-▶️ [Watch Demo Video](https://drive.google.com/file/d/1mMOsLMKN9MTO_JhNCMdeJpa7Q25qNRvN/view?usp=sharing)
+▶️ [Watch Demo Video](https://drive.google.com/file/d/1RNI2EZFm9lYxPG8osTSOC1NMRKv49tyd/view?usp=sharing)
 
 ---
 
@@ -33,6 +33,11 @@ The agent is designed to:
 * **RAG-Based Responses**
 
   * Answers questions using a local knowledge base (pricing, features, policies)
+
+* **Structured Option-Based Interaction**
+
+  * Guides users with clear choices (Basic / Pro or numeric selection)
+  * Supports “tell me more” style exploration before conversion
 
 * **Multi-Turn Conversation**
 
@@ -80,6 +85,10 @@ This agent is built using **LangGraph**, enabling a structured, state-driven wor
 
   * Lead capture is triggered only after all fields are collected
   * Prevents premature API calls
+
+* **UX Design Improvement**
+
+  * Uses structured prompts to guide users through plan selection and exploration before lead conversion
 
 ---
 
@@ -145,16 +154,37 @@ python main.py
 User: Tell me about pricing
 
 Assistant:
-We offer two plans:
-- Basic Plan ($29/month)
-- Pro Plan ($79/month)
+AutoStream offers two plans:
 
-User: I want to try the Pro plan
+1. Basic Plan — $29/month
+2. Pro Plan — $79/month
+
+You can:
+- Type "1" or "Basic" to explore Basic plan
+- Type "2" or "Pro" to explore Pro plan
+- Type "start pro" to begin immediately
+
+User: 2
 
 Assistant:
-Great choice! Could you tell me your full name?
+The Pro Plan includes:
+- Unlimited videos
+- 4K export
+- AI captions and subtitles
+- Advanced editing tools
+- Priority rendering
+- 24/7 support
+- Custom branding
+- Analytics dashboard
 
-User: Full Name
+Would you like to continue with the Pro plan?
+
+User: yes
+
+Assistant:
+Great! What’s your full name?
+
+User: Name
 
 Assistant:
 Thanks Name! What's your email address?
