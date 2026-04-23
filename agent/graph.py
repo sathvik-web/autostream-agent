@@ -106,12 +106,30 @@ _PRODUCT_RE = re.compile(
     r"\b(pricing|price|plan|plans|feature|features|policy|policies|trial)\b",
     flags=re.IGNORECASE,
 )
+_DIRECT_HIGH_INTENT_RE = re.compile(
+    r"\b(i\s+want\s+(the\s+)?(pro|basic)\s+plan|sign\s*me\s*up|start\s+(the\s+)?(pro|basic)\s+plan|buy\s+(the\s+)?(pro|basic)\s+plan|purchase\s+(the\s+)?(pro|basic)\s+plan|get\s+started)\b",
+    flags=re.IGNORECASE,
+)
 _PLAN_SELECTION_RE = re.compile(
     r"\b(pro\s+plan|basic\s+plan|pricing\s+plan|plan|plans)\b",
     flags=re.IGNORECASE,
 )
+_NUMERIC_PLAN_RE = re.compile(r"^\s*(1|2)\s*$")
+_BASIC_SELECTION_RE = re.compile(r"^\s*(basic|basic\s+plan)\s*$", flags=re.IGNORECASE)
+_PRO_SELECTION_RE = re.compile(r"^\s*(pro|pro\s+plan)\s*$", flags=re.IGNORECASE)
+_CONTINUE_RE = re.compile(r"^\s*(yes|yeah|yep|ok|okay|sure|start|continue)\s*[!,.?]*\s*$", flags=re.IGNORECASE)
 _AFFIRMATIVE_RE = re.compile(r"^\s*(yes|yeah|yep|ok|okay|sure)\s*[!,.?]*\s*$", flags=re.IGNORECASE)
 _NEGATIVE_RE = re.compile(r"^\s*(no|nope|nah)\s*[!,.?]*\s*$", flags=re.IGNORECASE)
+
+PRICING_MENU_TEXT = (
+    "AutoStream offers two plans:\n\n"
+    "1. Basic Plan — $29/month\n"
+    "2. Pro Plan — $79/month\n\n"
+    'You can:\n'
+    '- Type "1" or "Basic" to explore Basic plan\n'
+    '- Type "2" or "Pro" to explore Pro plan\n'
+    '- Type "start pro" or "start basic" to begin immediately'
+)
 
 
 def _is_new_conversation(state: AgentState) -> bool:
@@ -131,6 +149,37 @@ def _is_negative_reply(text: str) -> bool:
     return bool(_NEGATIVE_RE.match(text.strip()))
 
 
+def _pricing_flow_active(state: AgentState) -> bool:
+    """Detect whether the conversation is currently in pricing exploration."""
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, AIMessage):
+            content = msg.content.lower()
+            if "autoStream offers two plans:".lower() in content:
+                return True
+            if "would you like to continue with the basic plan?" in content:
+                return True
+            if "would you like to continue with the pro plan?" in content:
+                return True
+    return False
+
+
+def _selected_plan(text: str) -> str | None:
+    """Map a compact pricing selection to a concrete plan name."""
+    cleaned = text.strip().lower()
+    if _NUMERIC_PLAN_RE.match(cleaned):
+        return "Basic" if cleaned == "1" else "Pro"
+    if _BASIC_SELECTION_RE.match(cleaned):
+        return "Basic"
+    if _PRO_SELECTION_RE.match(cleaned):
+        return "Pro"
+    return None
+
+
+def _direct_plan_intent(text: str) -> bool:
+    """Detect explicit signup intent that should bypass the option flow."""
+    return bool(_DIRECT_HIGH_INTENT_RE.search(text))
+
+
 def _rule_based_intent(state: AgentState, text: str) -> str | None:
     """Cheap first-pass intent routing with LLM fallback for ambiguous turns."""
     if state.get("collecting_field") in {"name", "email", "platform"} and not state.get("lead_captured"):
@@ -139,9 +188,21 @@ def _rule_based_intent(state: AgentState, text: str) -> str | None:
     msg = text.strip()
     if not msg:
         return None
+    if _is_negative_reply(msg):
+        return None
+    if _pricing_flow_active(state) and _selected_plan(msg):
+        return "product_inquiry"
+    if _CONTINUE_RE.match(msg) and _pricing_flow_active(state):
+        return "high_intent"
+    if _direct_plan_intent(msg):
+        return "high_intent"
     if _AFFIRMATIVE_RE.match(msg):
         return "high_intent"
-    if _PLAN_SELECTION_RE.search(msg):
+    if _pricing_flow_active(state) and _NUMERIC_PLAN_RE.match(msg):
+        return "product_inquiry"
+    if _pricing_flow_active(state) and (_BASIC_SELECTION_RE.match(msg) or _PRO_SELECTION_RE.match(msg)):
+        return "product_inquiry"
+    if _PLAN_SELECTION_RE.search(msg) and not _pricing_flow_active(state):
         return "high_intent"
     if _GREETING_RE.match(msg) and _is_new_conversation(state):
         return "greeting"
@@ -217,6 +278,26 @@ def answer_node(state: AgentState) -> AgentState:
         new_msg = AIMessage(
             content="Hi! I can help you with pricing, plans, and features. What would you like to know?"
         )
+        return {**state, "messages": state["messages"] + [new_msg]}
+
+    if state.get("intent") == "product_inquiry" and (
+        re.search(r"\b(pricing|price|plans?|plan)\b", last_human, flags=re.IGNORECASE)
+        and not _pricing_flow_active(state)
+    ):
+        new_msg = AIMessage(content=PRICING_MENU_TEXT)
+        return {**state, "messages": state["messages"] + [new_msg]}
+
+    selected_plan = _selected_plan(last_human) if _pricing_flow_active(state) else None
+    if selected_plan:
+        context = retrieve(f"{selected_plan} plan")
+        system = (
+            f"You are AutoStream's sales assistant. The user selected the {selected_plan} plan.\n\n"
+            f"Use ONLY the provided knowledge base context to briefly summarize the {selected_plan} plan with clear bullets.\n"
+            f"End with exactly: Would you like to continue with the {selected_plan} plan?\n\n"
+            f"Knowledge Base Context:\n{context}"
+        )
+        reply = _chat(system, state["messages"][:-1], last_human)
+        new_msg = AIMessage(content=reply)
         return {**state, "messages": state["messages"] + [new_msg]}
 
     context = retrieve(last_human)
